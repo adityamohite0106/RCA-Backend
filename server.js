@@ -4,7 +4,22 @@ import { createServer } from 'http';
 import cors from 'cors';
 
 const app = express();
-app.use(cors());
+
+// ✅ Whitelist the Vercel frontend domain
+const allowedOrigins = ['https://rca-frontend-olive.vercel.app'];
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true,
+  })
+);
 
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
@@ -18,18 +33,18 @@ function findMatch() {
   if (waitingUsers.length >= 2) {
     const user1 = waitingUsers.shift();
     const user2 = waitingUsers.shift();
-    
+
     const roomId = `room_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
+
     activeRooms.set(user1, { roomId, partner: user2 });
     activeRooms.set(user2, { roomId, partner: user1 });
-    
+
     const ws1 = userConnections.get(user1);
     const ws2 = userConnections.get(user2);
-    
+
     if (ws1) ws1.send(JSON.stringify({ type: 'matched', roomId }));
     if (ws2) ws2.send(JSON.stringify({ type: 'matched', roomId }));
-    
+
     console.log(`Matched ${user1} with ${user2} in ${roomId}`);
   }
 }
@@ -43,44 +58,44 @@ function removeFromWaiting(userId) {
 
 function disconnectUser(userId) {
   const room = activeRooms.get(userId);
-  
+
   if (room) {
     const partnerWs = userConnections.get(room.partner);
     if (partnerWs) {
       partnerWs.send(JSON.stringify({ type: 'partner_disconnected' }));
     }
-    
+
     activeRooms.delete(userId);
     activeRooms.delete(room.partner);
   }
-  
+
   removeFromWaiting(userId);
   userConnections.delete(userId);
-  
+
   console.log(`User ${userId} disconnected`);
 }
 
 wss.on('connection', (ws) => {
   let currentUserId = null;
-  
+
   ws.on('message', (data) => {
     try {
       const message = JSON.parse(data.toString());
-      
+
       switch (message.type) {
         case 'join':
           currentUserId = message.userId;
           userConnections.set(currentUserId, ws);
-          
+
           if (!waitingUsers.includes(currentUserId)) {
             waitingUsers.push(currentUserId);
             ws.send(JSON.stringify({ type: 'waiting' }));
             console.log(`User ${currentUserId} joined, waiting for match`);
           }
-          
+
           findMatch();
           break;
-          
+
         case 'message':
           const room = activeRooms.get(currentUserId);
           if (room) {
@@ -93,7 +108,7 @@ wss.on('connection', (ws) => {
             }
           }
           break;
-          
+
         case 'typing':
           const typingRoom = activeRooms.get(currentUserId);
           if (typingRoom) {
@@ -103,15 +118,15 @@ wss.on('connection', (ws) => {
             }
           }
           break;
-          
+
         case 'next':
           disconnectUser(currentUserId);
-          
+
           if (!waitingUsers.includes(currentUserId)) {
             waitingUsers.push(currentUserId);
             ws.send(JSON.stringify({ type: 'waiting' }));
           }
-          
+
           findMatch();
           break;
       }
@@ -119,13 +134,13 @@ wss.on('connection', (ws) => {
       console.error('Error processing message:', error);
     }
   });
-  
+
   ws.on('close', () => {
     if (currentUserId) {
       disconnectUser(currentUserId);
     }
   });
-  
+
   ws.on('error', (error) => {
     console.error('WebSocket error:', error);
   });
@@ -136,3 +151,5 @@ server.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`🔌 WebSocket server ready on ws://localhost:${PORT}`);
 });
+
+// added whitelist the cors eroor link
